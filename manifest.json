@@ -2,7 +2,7 @@
   "name": "Maxica Ruta",
   "short_name": "Maxica",
   "description": "Control de rutas y vendedores",
-  "start_url": "https://script.google.com/macros/s/TU_DEPLOY_ID/exec",
+  "start_url": "https://script.google.com/macros/s/AKfycbzcvgPq_e0ntaIju-_OKnKapoDOWfsxWhaiIdTrTki4A4lPpAlue7t1Q6RnaRG3__sBZA/exec",
   "scope": "https://script.google.com/",
   "display": "standalone",
   "orientation": "portrait",

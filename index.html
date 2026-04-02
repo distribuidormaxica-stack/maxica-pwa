@@ -10,17 +10,152 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
-  * { margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; overflow: hidden; }
-  iframe { width: 100%; height: 100%; border: none; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #0052CC;
+    color: #FFF;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+    text-align: center;
+  }
+  img { width: 120px; margin-bottom: 16px; border-radius: 20px; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  p { font-size: 14px; opacity: 0.8; margin-bottom: 32px; }
+  .btn {
+    background: #FFF;
+    color: #0052CC;
+    border: none;
+    padding: 16px 40px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    margin-bottom: 12px;
+    width: 100%;
+    max-width: 300px;
+  }
+  .btn-outline {
+    background: transparent;
+    color: #FFF;
+    border: 2px solid rgba(255,255,255,0.5);
+  }
+  .install-section { display: none; }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 4px solid rgba(255,255,255,0.3);
+    border-top-color: #FFF;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin-bottom: 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-section { display: none; }
+  .hint { font-size: 12px; opacity: 0.6; margin-top: 24px; line-height: 1.5; }
 </style>
 </head>
 <body>
-<iframe src="https://script.google.com/macros/s/AKfycbzcvgPq_e0ntaIju-_OKnKapoDOWfsxWhaIIdTrTki4A4lPpAlue7t1Q6RnaRG3__sBZA/exec" allow="geolocation *"></iframe>
+
+<img src="icon-192.png" alt="Maxica">
+<h1>Maxica Ruta</h1>
+<p>Gestion de Rutas Comerciales</p>
+
+<!-- Seccion: Instalar app -->
+<div id="install-section" class="install-section">
+  <button class="btn" id="btn-install">INSTALAR APP</button>
+  <button class="btn btn-outline" id="btn-skip">Continuar sin instalar</button>
+  <div class="hint">
+    Instala la app para acceso rapido<br>y permisos de ubicacion permanentes
+  </div>
+</div>
+
+<!-- Seccion: Cargando / Redirigiendo -->
+<div id="loading-section" class="loading-section">
+  <div class="spinner"></div>
+  <p>Abriendo Maxica Ruta...</p>
+</div>
+
+<!-- Seccion: iOS instrucciones -->
+<div id="ios-section" style="display:none;">
+  <button class="btn" id="btn-go-ios">ABRIR APP</button>
+  <div class="hint">
+    Para instalar en iPhone:<br>
+    Toca el boton compartir &#9997; y luego<br>
+    "Agregar a pantalla de inicio"
+  </div>
+</div>
+
 <script>
+var APP_URL = 'https://script.google.com/macros/s/AKfycbzcvgPq_e0ntaIju-_OKnKapoDOWfsxWhaIIdTrTki4A4lPpAlue7t1Q6RnaRG3__sBZA/exec';
+
+// Registrar Service Worker
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('service-worker.js');
+  navigator.serviceWorker.register('service-worker.js').catch(function(){});
 }
+
+// Si ya esta instalado como PWA (standalone), redirigir directo
+if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
+  goToApp();
+}
+
+var deferredPrompt = null;
+
+// Capturar evento de instalacion
+window.addEventListener('beforeinstallprompt', function(e) {
+  e.preventDefault();
+  deferredPrompt = e;
+  showInstallUI();
+});
+
+// Boton instalar
+document.getElementById('btn-install').addEventListener('click', function() {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(function(choice) {
+      deferredPrompt = null;
+      if (choice.outcome === 'accepted') {
+        setTimeout(goToApp, 1000);
+      }
+    });
+  }
+});
+
+// Boton saltar instalacion
+document.getElementById('btn-skip').addEventListener('click', goToApp);
+
+// Boton iOS
+document.getElementById('btn-go-ios').addEventListener('click', goToApp);
+
+function showInstallUI() {
+  document.getElementById('install-section').style.display = 'block';
+  document.getElementById('loading-section').style.display = 'none';
+}
+
+function goToApp() {
+  document.getElementById('install-section').style.display = 'none';
+  document.getElementById('ios-section').style.display = 'none';
+  document.getElementById('loading-section').style.display = 'block';
+  window.location.href = APP_URL;
+}
+
+// Detectar plataforma
+var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+// Si no hay evento beforeinstallprompt despues de 2 seg
+setTimeout(function() {
+  if (!deferredPrompt) {
+    if (isIOS) {
+      document.getElementById('ios-section').style.display = 'block';
+    } else {
+      // Android pero ya instalado o no soporta - ir directo
+      goToApp();
+    }
+  }
+}, 2000);
 </script>
 </body>
 </html>

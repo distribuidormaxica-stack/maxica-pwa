@@ -1,20 +1,24 @@
 {
+  "id": "./",
   "name": "Maxica Ruta",
   "short_name": "Maxica",
   "description": "Control de rutas y vendedores",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#F0F0F0",
   "theme_color": "#0052CC",
   "icons": [
     {
-      "src": "https://distribuidormaxica-stack.github.io/maxica-pwa/icon-192.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "https://distribuidormaxica-stack.github.io/maxica-pwa/icon-512.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

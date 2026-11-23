@@ -9,6 +9,7 @@
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png">
   <link rel="apple-touch-icon" href="./icon-192.png">
+  <script src="./visitas-campo.js" defer></script>
   <script src="./reopen.js" defer></script>
   <style>
     :root {
@@ -98,6 +99,18 @@
     .sub { color: var(--muted); font-size: .9rem; }
     form { display: grid; gap: .45rem; }
     form button { margin-top: .35rem; }
+    #form-campo { gap:.8rem; }
+    #form-campo label { display:grid; gap:.27rem; font-weight:650; }
+    #form-campo input, #form-campo select, #form-campo textarea { width:100%; min-height:2.75rem; border:1px solid #a89da4; border-radius:.5rem; padding:.5rem .65rem; color:var(--ink); background:var(--white); font:inherit; }
+    #form-campo textarea { resize:vertical; }
+    #campo-acciones { display:flex; flex-wrap:wrap; gap:.4rem; }
+    #campo-cancelar, #boton-sincronizar { color:var(--ink); background:var(--paper); border-color:var(--line); }
+    #campo-productos label { grid-template-columns:1fr minmax(4.25rem,6rem); align-items:center; margin-block:.35rem; }
+    #dialog-campo { max-height:calc(100dvh - 1.5rem); overflow:auto; }
+    #boton-visita { display:block; width:100%; margin:.8rem 0 .35rem; }
+    #campo-error { color:var(--brand-dark); margin:0; }
+    #avisos-campo { margin:.6rem 0 .3rem; }
+    #recibos-campo { border-top:1px solid var(--line); margin-top:.5rem; }
     #snapshot { display: grid; grid-template-columns: minmax(0,1fr); gap: .7rem; align-items: start; }
     #snapshot .card { margin-bottom: 0; }
     .pending-card { border-top: 3px solid var(--yellow); }
@@ -150,16 +163,24 @@
         <div class="card pending-card">
           <h2>Visitas pendientes</h2>
           <p id="visit-summary" class="sub"></p>
+          <p id="avisos-campo" class="sub" role="status" aria-live="polite" hidden></p>
+          <button type="button" id="boton-sincronizar" hidden>Sincronizar ahora</button>
           <ul id="visits"></ul>
           <details id="review-details" hidden>
             <summary>Visitas por revisar</summary>
             <ul id="reviews"></ul>
+          </details>
+          <details id="recibos-campo" hidden>
+            <summary>Visitas sincronizadas</summary>
+            <ul id="lista-recibos-campo"></ul>
           </details>
         </div>
         <div class="card">
           <h2 id="journey-day"></h2>
           <p id="seller" class="sub"></p>
           <p id="updated" class="sub"></p>
+          <button type="button" id="boton-visita" hidden>Registrar visita</button>
+          <p id="preparar-captura" class="sub" hidden>Para registrar visitas desde esta vista, prepara la jornada una vez con señal.</p>
           <p id="route-summary"></p>
           <details id="route-details">
             <summary>Clientes de la ruta</summary>
@@ -173,6 +194,29 @@
       <p>Abre Rutas con señal y guarda tu jornada para consultarla más adelante.</p>
     </section>
   </main>
+  <dialog id="dialog-campo" aria-labelledby="titulo-campo">
+    <h2 id="titulo-campo">Registrar visita</h2>
+    <form id="form-campo">
+      <label>Cliente<select id="campo-cliente" required></select></label>
+      <label>Tipo de gestión<select id="campo-tipo" required></select></label>
+      <label id="campo-motivo-fila" hidden>Motivo de no compra<select id="campo-motivo"></select></label>
+      <details id="campo-competencia" hidden>
+        <summary>Información de competencia</summary>
+        <label>Competidor<input id="campo-competidor" maxlength="200"></label>
+        <label>Precio del competidor<input id="campo-precio" inputmode="decimal" maxlength="60"></label>
+      </details>
+      <details id="campo-productos-fila" hidden>
+        <summary>Productos foco</summary>
+        <div id="campo-productos"></div>
+      </details>
+      <label>Nota opcional<textarea id="campo-nota" rows="2" maxlength="1500"></textarea></label>
+      <p id="campo-error" role="alert"></p>
+      <div id="campo-acciones">
+        <button type="submit" id="campo-guardar">Guardar visita</button>
+        <button type="button" id="campo-cancelar">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="install-help" aria-labelledby="install-title">
     <h2 id="install-title">Añadir Rutas a la pantalla de inicio</h2>
     <p>En Safari, toca <strong>Compartir</strong> y luego <strong>Añadir a pantalla de inicio</strong>.</p>

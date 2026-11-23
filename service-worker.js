@@ -1,8 +1,8 @@
 const CACHE_PREFIX = 'maxica-ruta-shell-';
-const CACHE_NAME = CACHE_PREFIX + '2026-11-22-3';
+const CACHE_NAME = CACHE_PREFIX + '2026-11-22-4';
 const scope = new URL(self.registration.scope);
 const shell = new URL('index.html', scope).href;
-const assets = ['index.html', 'reopen.js', 'manifest.json', 'icon-192.png', 'icon-512.png']
+const assets = ['index.html', 'reopen.js', 'manifest.json', 'icon-192.png', 'icon-512.png', 'maxica-logo.webp']
   .map(function (file) { return new URL(file, scope).href; });
 
 self.addEventListener('install', function (event) {

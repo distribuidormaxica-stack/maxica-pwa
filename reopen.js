@@ -2,15 +2,13 @@
 
 const RUTAS_URL = 'https://script.google.com/macros/s/AKfycbxyD8Jzh_Kjx27G3Tec_xIq6NFBY1S0j-9prQiJh5N8LUGMaRl7kdhc4lS55v05P7yIsg/exec';
 const TRUSTED_APPS_SCRIPT_ORIGIN = /^https:\/\/(?:[a-z0-9-]+-script\.|script\.)googleusercontent\.com$/;
-const VAULT_KEY = 'maxica-rutas-offline-jornada-v1';
+const DEVICE_DB = 'maxica-rutas-offline-v2';
+const DEVICE_CHANGED = 'maxica-rutas-device-changed-v2';
 const PROTOCOL_VERSION = 1;
-const KEY_ROUNDS = 310000;
-const MINIMUM_PHRASE_LENGTH = 10;
 const MAX_SNAPSHOT_CHARS = 1000000;
 const formatter = new Intl.DateTimeFormat('es-VE', {
   timeZone: 'America/Caracas', dateStyle: 'medium', timeStyle: 'short'
 });
-const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const ui = id => document.getElementById(id);
 const frame = ui('frame');
@@ -23,50 +21,58 @@ let activePort = null;
 let readyWorker = false;
 let deferredInstall = null;
 let vault = null;
-let hasSealedJourney = false;
 let keyEpoch = 0;
 let writes = Promise.resolve();
+let readingDevice = true;
+let storageError = false;
+let lockingDevice = false;
 
-function readEnvelope() {
-  const raw = localStorage.getItem(VAULT_KEY);
-  if (!raw) return null;
-  const envelope = JSON.parse(raw);
-  if (envelope.version !== PROTOCOL_VERSION ||
-      !/^[a-f0-9]{32}$/.test(envelope.salt) ||
-      !/^[a-f0-9]{24}$/.test(envelope.iv) ||
-      typeof envelope.data !== 'string' || envelope.data.length > MAX_SNAPSHOT_CHARS * 6) {
-    throw new Error('Formato de jornada no válido');
+function openDeviceStore() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DEVICE_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('device');
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error('Almacenamiento de jornada ocupado'));
+  });
+}
+
+function updateDevice(db, update) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction('device', 'readwrite');
+    const store = transaction.objectStore('device');
+    const request = store.get('local');
+    let result;
+    request.onsuccess = () => {
+      try {
+        const current = request.result;
+        result = update(current);
+        if (result !== current) store.put(result, 'local');
+      } catch (error) {
+        transaction.abort();
+        reject(error);
+      }
+    };
+    transaction.oncomplete = () => resolve(result);
+    transaction.onabort = () => reject(transaction.error || new Error('No se guardó la jornada'));
+  });
+}
+
+async function newDeviceKeys(locked = false) {
+  const material = crypto.getRandomValues(new Uint8Array(32));
+  try {
+    const [readKey, writeKey] = await Promise.all([
+      crypto.subtle.importKey('raw', material, 'AES-GCM', false, ['decrypt']),
+      crypto.subtle.importKey('raw', material, 'AES-GCM', false, ['encrypt'])
+    ]);
+    return {session:crypto.randomUUID(), readKey, writeKey, locked, envelope:null};
+  } finally {
+    material.fill(0);
   }
-  return {raw, envelope};
-}
-
-function toHex(bytes) {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function fromHex(hex) {
-  return Uint8Array.from(hex.match(/.{2}/g), pair => parseInt(pair, 16));
-}
-
-function encodeBytes(bytes) {
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 16384) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 16384));
-  }
-  return btoa(binary);
-}
-
-function deriveKeys(phrase, salt) {
-  return crypto.subtle.importKey('raw', encoder.encode(phrase), 'PBKDF2', false, ['deriveKey'])
-    .then(async material => {
-      const derivation = {name:'PBKDF2', salt, iterations:KEY_ROUNDS, hash:'SHA-256'};
-      const algorithm = {name:'AES-GCM', length:256};
-      const [readKey, writeKey] = await Promise.all([
-        crypto.subtle.deriveKey(derivation, material, algorithm, false, ['decrypt']),
-        crypto.subtle.deriveKey(derivation, material, algorithm, false, ['encrypt'])
-      ]);
-      return {readKey, writeKey};
-    });
 }
 
 function validateSnapshot(input) {
@@ -112,34 +118,24 @@ function validateSnapshot(input) {
   return snapshot;
 }
 
-async function openSnapshot(current, phrase) {
-  const {raw, envelope} = current;
-  const salt = fromHex(envelope.salt);
-  const keys = await deriveKeys(phrase, salt);
-  const data = Uint8Array.from(atob(envelope.data), char => char.charCodeAt(0));
-  const snapshot = await decryptSnapshot(keys.readKey, fromHex(envelope.iv), data);
-  return {raw, salt, ...keys, snapshot};
-}
-
 async function decryptSnapshot(readKey, iv, cipher) {
   const bytes = await crypto.subtle.decrypt({name:'AES-GCM', iv}, readKey, cipher);
   return validateSnapshot(JSON.parse(decoder.decode(bytes)));
 }
 
-function persistSnapshot(state, snapshot, iv, cipher) {
-  if (state.epoch !== keyEpoch) return false;
-  if (state.snapshot && state.snapshot.seller !== snapshot.seller) return false;
-  if (state.snapshot && Date.parse(snapshot.updatedAt) < Date.parse(state.snapshot.updatedAt)) return true;
-  const raw = JSON.stringify({
-    version: PROTOCOL_VERSION, salt: toHex(state.salt), iv: toHex(iv),
-    data: encodeBytes(new Uint8Array(cipher))
-  });
-  const previous = localStorage.getItem(VAULT_KEY);
-  if (previous !== state.raw) throw new Error('Otra ventana actualizó la jornada');
-  localStorage.setItem(VAULT_KEY, raw);
-  state.raw = raw;
-  state.snapshot = snapshot;
-  return true;
+async function recoverDevice(record, epoch) {
+  const envelope = record?.envelope;
+  const snapshot = envelope && !record.locked
+    ? await decryptSnapshot(record.readKey, envelope.iv, envelope.cipher) : null;
+  if (epoch !== keyEpoch) return;
+  vault = record ? {record, snapshot} : null;
+  storageError = false;
+  refreshSavedView();
+  refreshNotice();
+}
+
+function notifyDeviceChange() {
+  try { localStorage.setItem(DEVICE_CHANGED, crypto.randomUUID()); } catch (_) {}
 }
 
 function showNotice(message) {
@@ -148,48 +144,31 @@ function showNotice(message) {
 }
 
 function refreshNotice() {
-  if (navigator.onLine === false) {
-    showNotice('Sin señal · Puedes consultar la última jornada guardada.');
-  } else if (currentView === 'saved' && !vault && hasSealedJourney) {
-    showNotice('La jornada de este dispositivo está protegida. Desbloquéala para consultarla.');
-  } else if (activePort && !vault) {
-    showNotice('Abre «Ver jornada guardada» para configurar o desbloquear el guardado en este dispositivo.');
-  } else if (vault && vault.snapshot && readyWorker) {
+  if (storageError) {
+    showNotice('El navegador no pudo acceder a la copia de este dispositivo.');
+  } else if (vault?.snapshot && navigator.onLine === false) {
+    showNotice('Sin señal · Consultando la última jornada guardada.');
+  } else if (vault?.snapshot && readyWorker) {
     showNotice('Jornada guardada · Puedes cerrar Rutas y volver a abrirla sin señal.');
-  } else if (vault && vault.snapshot) {
+  } else if (vault?.snapshot) {
     showNotice('Jornada guardada · El navegador aún no confirmó que la aplicación pueda abrirse sin señal.');
+  } else if (navigator.onLine === false) {
+    showNotice('Sin señal.');
   } else {
     showNotice('Prepara tu jornada desde Rutas para consultarla sin señal.');
   }
 }
 
 function refreshSavedView() {
-  let sealed;
-  let storageError = false;
-  try { sealed = readEnvelope(); } catch (_) { storageError = true; }
-  hasSealedJourney = Boolean(sealed);
-  const unlocked = Boolean(vault && vault.snapshot);
-  const settingUp = !sealed && !storageError;
-  const showForm = !vault && !storageError && Boolean(sealed || activePort);
-  ui('empty').hidden = unlocked || showForm;
-  ui('key-form').hidden = !showForm;
-  ui('snapshot').hidden = !unlocked;
-  ui('empty-message').textContent = storageError
-    ? 'No se pudo leer la jornada en este navegador. Comprueba que el almacenamiento local esté habilitado.'
-    : vault && !vault.snapshot
-      ? 'La frase está lista. Vuelve a Rutas y guarda tu jornada.'
-      : 'En este dispositivo aún no hay una jornada disponible sin señal.';
-  if (showForm) {
-    ui('key-title').textContent = settingUp ? 'Proteger jornada en este dispositivo' : 'Desbloquear jornada';
-    ui('key-help').textContent = settingUp
-      ? 'Crea una frase de al menos 10 caracteres. Usa una distinta del PIN de Rutas. La necesitarás para abrir la jornada sin señal.'
-      : 'Escribe la frase que creaste al guardar la jornada en este dispositivo.';
-    ui('repeat-phrase').hidden = !settingUp;
-    ui('repeat-label').hidden = !settingUp;
-    ui('repeat-phrase').required = settingUp;
-    ui('key-submit').textContent = settingUp ? 'Crear frase de acceso' : 'Desbloquear';
-  }
-  if (unlocked) drawSnapshot(vault.snapshot);
+  const snapshot = vault?.snapshot;
+  ui('empty').hidden = Boolean(snapshot);
+  ui('snapshot').hidden = !snapshot;
+  let texto = 'En este dispositivo aún no hay una jornada disponible sin señal.';
+  if (readingDevice) texto = 'Buscando la jornada de este dispositivo…';
+  else if (storageError) texto = 'No se pudo abrir la jornada. Comprueba que el almacenamiento del navegador esté habilitado.';
+  else if (vault?.record.locked) texto = 'Cerraste sesión. Inicia sesión en Rutas para preparar la jornada de nuevo.';
+  ui('empty-message').textContent = texto;
+  if (snapshot) drawSnapshot(snapshot);
   else {
     for (const id of ['seller','updated','journey-day','route-summary','visit-summary']) ui(id).textContent = '';
     for (const id of ['clients','visits','reviews']) ui(id).replaceChildren();
@@ -287,14 +266,11 @@ function isRutasFrame(source) {
 }
 
 function onSnapshot(port, message) {
+  const epoch = keyEpoch;
+  if (lockingDevice) return;
   writes = writes.then(async () => {
-    if (activePort !== port) return;
+    if (activePort !== port || epoch !== keyEpoch) return;
     try {
-      const targetVault = vault;
-      if (!targetVault) {
-        port.postMessage({type:'saved', id:message.id, ok:false, reason:'locked'});
-        return;
-      }
       const validCipher = message.iv instanceof Uint8Array && message.iv.length === 12 &&
         message.cipher instanceof ArrayBuffer && message.cipher.byteLength >= 16 &&
         message.cipher.byteLength <= MAX_SNAPSHOT_CHARS * 4;
@@ -302,17 +278,47 @@ function onSnapshot(port, message) {
         port.postMessage({type:'saved', id:message.id, ok:false, reason:'invalid-ciphertext'});
         return;
       }
-      const snapshot = await decryptSnapshot(targetVault.readKey, message.iv, message.cipher);
-      if (vault !== targetVault || activePort !== port) return;
-      if (targetVault.snapshot && snapshot.seller !== targetVault.snapshot.seller) {
+      const db = await deviceReady;
+      const targetVault = vault;
+      if (!db || !targetVault || activePort !== port || epoch !== keyEpoch) return;
+
+      const current = await updateDevice(db, record => record);
+      if (!current || current.session !== targetVault.record.session) {
+        port.postMessage({type:'saved', id:message.id, ok:false, reason:'session'});
+        return;
+      }
+      const snapshot = await decryptSnapshot(current.readKey, message.iv, message.cipher);
+      const previous = current.envelope && !current.locked
+        ? current.envelope.id === targetVault.record.envelope?.id && targetVault.snapshot
+          ? targetVault.snapshot
+          : await decryptSnapshot(current.readKey, current.envelope.iv, current.envelope.cipher)
+        : null;
+      if (activePort !== port || epoch !== keyEpoch) return;
+      if (previous && snapshot.seller !== previous.seller) {
         showNotice('La jornada guardada pertenece a otro vendedor. Cambia de sesión en Rutas antes de guardar.');
         port.postMessage({type:'saved', id:message.id, ok:false, reason:'different-seller'});
         return;
       }
-      const ok = persistSnapshot(targetVault, snapshot, message.iv, message.cipher);
+      if (previous && Date.parse(previous.updatedAt) > Date.parse(snapshot.updatedAt)) {
+        port.postMessage({type:'saved', id:message.id, ok:true});
+        return;
+      }
+      const envelope = {id:crypto.randomUUID(), iv:message.iv, cipher:message.cipher};
+      const stored = await updateDevice(db, record => {
+        if (activePort !== port || epoch !== keyEpoch || record?.session !== current.session ||
+            record.envelope?.id !== current.envelope?.id) return record;
+        return {...record, locked:false, envelope};
+      });
+      if (activePort !== port || epoch !== keyEpoch) return;
+      const ok = stored?.envelope?.id === envelope.id;
+      if (ok) {
+        vault = {record:stored, snapshot};
+        storageError = false;
+        refreshSavedView();
+        refreshNotice();
+        notifyDeviceChange();
+      }
       port.postMessage({type:'saved', id:message.id, ok});
-      refreshSavedView();
-      refreshNotice();
     } catch (_) {
       port.postMessage({type:'saved', id:message.id, ok:false, reason:'storage'});
       showNotice('No se pudo actualizar la jornada guardada. La última copia sigue disponible.');
@@ -320,21 +326,40 @@ function onSnapshot(port, message) {
   });
 }
 
-function lockSnapshot() {
-  keyEpoch++;
-  vault = null;
-  if (activePort) activePort.postMessage({type:'lock'});
-  ui('phrase').value = '';
-  ui('repeat-phrase').value = '';
-  ui('key-error').textContent = '';
+async function lockSnapshot(port) {
+  if (lockingDevice) return;
+  lockingDevice = true;
+  const epoch = ++keyEpoch;
+  const target = vault?.record.session;
+  if (vault) vault = {...vault, snapshot:null};
+  port.postMessage({type:'lock'});
   refreshSavedView();
   refreshNotice();
+  try {
+    const db = await deviceReady;
+    if (!db) return;
+    const replacement = await newDeviceKeys(true);
+    const stored = await updateDevice(db, record => !target || record?.session === target ? replacement : record);
+    if (epoch !== keyEpoch) return;
+    vault = stored ? {record:stored, snapshot:null} : null;
+    refreshSavedView();
+    refreshNotice();
+    notifyDeviceChange();
+    if (stored?.session === replacement.session && activePort) requestSnapshot(activePort);
+  } catch (_) {
+    storageError = true;
+    refreshSavedView();
+    refreshNotice();
+  } finally {
+    lockingDevice = false;
+  }
 }
 
-function requestSnapshot() {
-  if (!activePort || !vault) return;
+async function requestSnapshot(port) {
+  await deviceReady;
+  if (activePort !== port || !vault || lockingDevice) return;
   try {
-    activePort.postMessage({type:'refresh', key:vault.writeKey});
+    port.postMessage({type:'refresh', key:vault.record.writeKey});
   } catch (_) {
     showNotice('Este navegador no pudo conectar la copia guardada con Rutas.');
   }
@@ -353,7 +378,7 @@ window.addEventListener('message', event => {
     const incoming = event.data;
     if (activePort !== port || !incoming) return;
     if (incoming.type === 'lock') {
-      lockSnapshot();
+      lockSnapshot(port);
     } else if (incoming.type === 'snapshot' && typeof incoming.id === 'string' && incoming.id.length <= 120) {
       onSnapshot(port, incoming);
     }
@@ -361,56 +386,46 @@ window.addEventListener('message', event => {
   event.source.postMessage({type:'maxica:rutas-connect', version:PROTOCOL_VERSION}, event.origin, [channel.port2]);
   refreshSavedView();
   refreshNotice();
-  requestSnapshot();
+  requestSnapshot(port);
 });
 
-ui('key-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  const error = ui('key-error');
-  const submit = ui('key-submit');
-  const phrase = ui('phrase').value;
-  const repeat = ui('repeat-phrase').value;
-  ui('phrase').value = '';
-  ui('repeat-phrase').value = '';
-  error.textContent = '';
-  submit.disabled = true;
-  const epoch = keyEpoch;
-  try {
-    const stored = readEnvelope();
-    let next;
-    if (stored) {
-      next = await openSnapshot(stored, phrase);
-    } else {
-      if (phrase.length < MINIMUM_PHRASE_LENGTH || phrase !== repeat) {
-        error.textContent = 'Usa al menos 10 caracteres y repite la misma frase.';
-        return;
-      }
-      const salt = crypto.getRandomValues(new Uint8Array(16));
-      const keys = await deriveKeys(phrase, salt);
-      next = {epoch, salt, ...keys, raw:null, snapshot:null};
-    }
-    if (epoch !== keyEpoch) return;
-    next.epoch = epoch;
-    vault = next;
-    refreshSavedView();
-    refreshNotice();
-    requestSnapshot();
-  } catch (_) {
-    error.textContent = 'No se pudo abrir o guardar la jornada. Comprueba tu frase y el almacenamiento del navegador.';
-  } finally {
-    submit.disabled = false;
-  }
-});
-
-ui('live-button').addEventListener('click', () => showLive(true));
-ui('saved-button').addEventListener('click', () => setView('saved'));
+let viewChosen = false;
+ui('live-button').addEventListener('click', () => { viewChosen = true; showLive(true); });
+ui('saved-button').addEventListener('click', () => { viewChosen = true; setView('saved'); });
 window.addEventListener('offline', () => {
   if (!activePort || currentView !== 'live') setView('saved');
   refreshNotice();
 });
 window.addEventListener('online', refreshNotice);
-window.addEventListener('storage', event => {
-  if (event.key === VAULT_KEY || event.key === null) lockSnapshot();
+window.addEventListener('storage', async event => {
+  if (event.key !== DEVICE_CHANGED && event.key !== null) return;
+  const epoch = keyEpoch;
+  try {
+    const db = await deviceReady;
+    if (!db || epoch !== keyEpoch) return;
+    const record = await updateDevice(db, current => current);
+    if (epoch !== keyEpoch) return;
+    if (record?.session !== vault?.record.session) {
+      keyEpoch++;
+      if (vault) vault = {...vault, snapshot:null};
+      if (activePort) {
+        activePort.postMessage({type:'lock'});
+        activePort.close();
+        activePort = null;
+      }
+      refreshSavedView();
+      await recoverDevice(record, keyEpoch);
+    } else {
+      await recoverDevice(record, epoch);
+    }
+  } catch (_) {
+    if (epoch === keyEpoch) {
+      vault = null;
+      storageError = true;
+      refreshSavedView();
+      refreshNotice();
+    }
+  }
 });
 window.addEventListener('beforeinstallprompt', event => {
   event.preventDefault();
@@ -458,7 +473,23 @@ if ('serviceWorker' in navigator) {
     .catch(() => refreshNotice());
 }
 
-try { hasSealedJourney = Boolean(readEnvelope()); } catch (_) {}
-if (navigator.onLine === false || hasSealedJourney) setView('saved');
-else showLive();
-refreshNotice();
+setView('saved');
+const deviceReady = (async () => {
+  const epoch = keyEpoch;
+  try {
+    const db = await openDeviceStore();
+    const candidate = await newDeviceKeys();
+    const record = await updateDevice(db, current => current || candidate);
+    readingDevice = false;
+    await recoverDevice(record, epoch);
+    if (!viewChosen && !vault?.snapshot && navigator.onLine !== false) showLive();
+    return db;
+  } catch (_) {
+    readingDevice = false;
+    storageError = true;
+    refreshSavedView();
+    refreshNotice();
+    if (!viewChosen && navigator.onLine !== false) showLive();
+    return null;
+  }
+})();

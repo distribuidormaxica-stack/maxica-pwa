@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#102a56">
+  <meta name="theme-color" content="#f8f7f6">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>MAXICA Rutas</title>
   <link rel="manifest" href="./manifest.json">
@@ -11,54 +11,126 @@
   <link rel="apple-touch-icon" href="./icon-192.png">
   <script src="./reopen.js" defer></script>
   <style>
-    :root { color-scheme: light; font: 16px/1.5 system-ui, sans-serif; color: #162d4b; background: #eef3fa; }
+    :root {
+      color-scheme: light;
+      font: 16px/1.5 system-ui, sans-serif;
+      --ink: #221d20;
+      --muted: #5e565b;
+      --paper: #f8f7f6;
+      --white: #fff;
+      --line: #eae5e5;
+      --brand: #bd1633;
+      --brand-dark: #961127;
+      --brand-soft: #fff0f2;
+      --yellow: #ffca46;
+      color: var(--ink);
+      background: var(--paper);
+    }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
-    body { margin: 0; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; }
-    header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; padding: .55rem max(.75rem,env(safe-area-inset-right)) .55rem max(.75rem,env(safe-area-inset-left)); background: #102a56; color: #fff; }
-    .brand { display: flex; align-items: center; gap: .55rem; font-weight: 750; }
-    .brand img { width: 1.6rem; height: 1.6rem; border-radius: .26rem; }
-    .tools { display: flex; gap: .45rem; align-items: center; flex-wrap: wrap; }
-    button, .button { font: inherit; font-weight: 650; cursor: pointer; min-height: 2.5rem; border: 1px solid #2b5eb0; border-radius: .55rem; padding: .42rem .78rem; background: #2154a3; color: #fff; text-decoration: none; }
-    header button { font-size: .85rem; border-color: #718db6; background: #1d4176; }
-    button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid #c3720d; outline-offset: 2px; }
-    button:disabled { opacity: .6; cursor: default; }
+    body { margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; }
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-areas: "brand install" "tools tools";
+      align-items: center;
+      gap: .4rem .75rem;
+      padding: max(.35rem,env(safe-area-inset-top)) max(.75rem,env(safe-area-inset-right)) .45rem max(.75rem,env(safe-area-inset-left));
+      border-bottom: 1px solid var(--line);
+      background: var(--white);
+    }
+    .brand { grid-area: brand; display: flex; align-items: center; gap: .6rem; min-width: 0; min-height: 2.75rem; font-size: 1.05rem; font-weight: 800; }
+    .brand svg { flex: none; }
+    .tools { grid-area: tools; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .4rem; }
+    button {
+      min-height: 2.75rem;
+      padding: .5rem .8rem;
+      border: 1px solid var(--brand);
+      border-radius: .6rem;
+      font: inherit;
+      font-weight: 700;
+      color: var(--white);
+      background: var(--brand);
+      cursor: pointer;
+    }
+    button:active { background: var(--brand-dark); }
+    button:disabled { opacity: .65; cursor: default; }
+    .tools button, #install-button {
+      border-color: var(--line);
+      background: var(--paper);
+      color: var(--ink);
+      font-size: .875rem;
+      line-height: 1.25;
+    }
+    .tools button[aria-pressed="true"] { border-color: var(--brand); background: var(--brand); color: var(--white); }
+    #install-button { grid-area: install; color: var(--brand-dark); background: var(--brand-soft); border-color: transparent; }
+    button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid var(--brand-dark); outline-offset: 2px; }
     #workspace { display: grid; grid-template-rows: auto minmax(0,1fr); min-height: 0; }
-    #connection { padding: .45rem .85rem; color: #214672; background: #e1edff; font-size: .86rem; overflow-wrap: anywhere; }
-    #notice { display: inline; margin: 0; }
-    #frame { width: 100%; height: 100%; min-height: 70dvh; border: 0; background: white; }
-    #saved, #welcome { width: min(100% - 1.5rem, 42rem); margin: 1rem auto max(1rem,env(safe-area-inset-bottom)); }
+    #connection {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: .15rem .9rem;
+      min-height: 2.75rem;
+      padding: .4rem max(.75rem,env(safe-area-inset-right)) .4rem max(.75rem,env(safe-area-inset-left));
+      border-bottom: 1px solid var(--line);
+      background: var(--paper);
+      color: var(--muted);
+      font-size: .875rem;
+      overflow-wrap: anywhere;
+    }
+    #connection:has(#notice:empty):has(#standalone[hidden]) { display: none; }
+    #notice { margin: 0; }
+    #standalone { color: var(--brand-dark); font-weight: 700; text-underline-offset: .2em; }
+    #frame { width: 100%; height: 100%; min-height: min(26rem,65dvh); border: 0; background: var(--white); }
+    #saved, #welcome { width: min(100% - 1.5rem, 48rem); margin: .9rem auto max(.9rem,env(safe-area-inset-bottom)); }
     h1, h2, p { margin-top: 0; }
-    h1 { font-size: clamp(1.4rem,6vw,1.85rem); line-height: 1.15; margin-bottom: .5rem; }
-    h2 { font-size: 1.12rem; margin-bottom: .7rem; }
-    .card { background: white; border: 1px solid #d4dfed; border-radius: .8rem; padding: 1rem; margin-bottom: .8rem; }
-    .sub { color: #49617d; font-size: .9rem; }
-    form { display: grid; align-items: start; gap: .45rem; }
-    label { font-weight: 650; }
-    input { min-width: 0; border: 1px solid #6c83a0; border-radius: .45rem; font: inherit; padding: .55rem .65rem; }
-    form button { justify-self: start; margin-top: .45rem; }
-    .problem { color: #a12831; margin: 0; min-height: 1.25em; }
+    h1 { font-size: clamp(1.55rem,6vw,2rem); line-height: 1.15; margin-bottom: .75rem; }
+    h2 { font-size: 1.12rem; line-height: 1.25; margin-bottom: .55rem; }
+    p { margin-bottom: .7rem; }
+    .card { background: var(--white); border: 1px solid var(--line); border-radius: .85rem; padding: clamp(.85rem,3vw,1.2rem); margin-bottom: .7rem; min-width: 0; }
+    .card > :last-child { margin-bottom: 0; }
+    .sub { color: var(--muted); font-size: .9rem; }
+    form { display: grid; gap: .45rem; }
+    label { font-weight: 700; }
+    input { min-width: 0; min-height: 2.75rem; border: 1px solid #82757c; border-radius: .55rem; background: var(--white); color: var(--ink); font: inherit; padding: .55rem .65rem; }
+    form button { margin-top: .35rem; }
+    .problem { color: var(--brand-dark); font-weight: 650; margin: 0; }
+    #snapshot { display: grid; grid-template-columns: minmax(0,1fr); gap: .7rem; align-items: start; }
+    #snapshot .card { margin-bottom: 0; }
+    .pending-card { border-top: 3px solid var(--yellow); }
+    #route-summary { font-weight: 750; margin: .75rem 0 .2rem; }
     ul { list-style: none; padding: 0; margin: 0; }
-    li { padding: .6rem 0; border-bottom: 1px solid #dce5ef; overflow-wrap: anywhere; }
+    li { padding: .6rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
     li:last-child { border-bottom: 0; }
     .item-head { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: baseline; gap: .2rem .6rem; }
-    .badge { display: inline-block; border-radius: .4rem; padding: .15rem .45rem; font-size: .8rem; font-weight: 750; border: 1px solid currentColor; }
-    .pendiente { color: #7b4500; background: #fff4d6; }
-    .por_revisar { color: #9a2c36; background: #fff0f0; }
-    .sincronizada, .visitado { color: #215c43; background: #ebfaef; }
-    #standalone { color: #174a99; margin-left: .3em; }
-    details > summary { cursor: pointer; font-weight: 650; }
-    dialog { width: min(100% - 2rem, 30rem); padding: 1.15rem; border: 1px solid #9fb4ce; border-radius: .8rem; color: inherit; }
-    dialog::backdrop { background: #0e254c88; }
+    .badge { display: inline-block; border-radius: .35rem; padding: .2rem .5rem; font-size: .8rem; font-weight: 750; }
+    .pendiente { color: #634000; background: #fff1cf; }
+    .por_revisar { color: var(--brand-dark); background: var(--brand-soft); }
+    .sincronizada, .visitado { color: #245819; background: #edf6e9; }
+    details > summary { cursor: pointer; padding: .65rem 0; min-height: 2.75rem; font-weight: 700; }
+    #review-details { border-top: 1px solid var(--line); margin-top: .5rem; }
+    dialog { width: min(100% - 2rem, 30rem); padding: 1.15rem; border: 1px solid var(--line); border-radius: .85rem; color: inherit; }
+    dialog::backdrop { background: #221d2088; }
+    @media (min-width: 42rem) {
+      header { grid-template-columns: 1fr auto auto; grid-template-areas: "brand tools install"; }
+      .tools { grid-template-columns: auto auto; }
+      form button { justify-self: start; }
+      #snapshot { grid-template-columns: minmax(0,1fr) minmax(0,1.15fr); }
+    }
   </style>
 </head>
 <body>
   <header>
-    <div class="brand"><img src="./icon-192.png" alt="" width="26" height="26">MAXICA Rutas</div>
+    <div class="brand">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="30" height="30" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#b8141c"/><path d="M15 47V31a8 8 0 0 1 16 0v16m0-16a8 8 0 0 1 16 0v16" fill="none" stroke="#fff" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 20c1-7 7-12.5 15.5-12.5-.5 8.5-6.5 14.5-15.5 12.5Z" fill="#3f8f28" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/></svg>
+      <span>MAXICA Rutas</span>
+    </div>
+    <button type="button" id="install-button" hidden>Instalar</button>
     <nav class="tools" aria-label="Vistas de Rutas">
       <button type="button" id="live-button">Abrir Rutas</button>
       <button type="button" id="saved-button">Ver jornada guardada</button>
-      <button type="button" id="install-button" hidden>Instalar</button>
     </nav>
   </header>
   <main id="workspace">
@@ -77,30 +149,30 @@
         <h2 id="key-title">Desbloquear jornada</h2>
         <p class="sub" id="key-help"></p>
         <label for="phrase">Frase de acceso</label>
-        <input id="phrase" type="password" autocomplete="off" required maxlength="200">
+        <input id="phrase" type="password" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required maxlength="200">
         <label for="repeat-phrase" id="repeat-label" hidden>Repite la frase</label>
-        <input id="repeat-phrase" type="password" autocomplete="off" maxlength="200" hidden>
+        <input id="repeat-phrase" type="password" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="200" hidden>
         <p class="problem" id="key-error" role="alert"></p>
         <button type="submit" id="key-submit">Desbloquear</button>
       </form>
       <div id="snapshot" hidden>
-        <div class="card">
-          <h2 id="journey-day"></h2>
-          <p id="seller" class="sub"></p>
-          <p id="updated" class="sub"></p>
-          <p id="route-summary"></p>
-          <details id="route-details" open>
-            <summary>Clientes de la ruta</summary>
-            <ul id="clients"></ul>
-          </details>
-        </div>
-        <div class="card">
+        <div class="card pending-card">
           <h2>Visitas pendientes</h2>
           <p id="visit-summary" class="sub"></p>
           <ul id="visits"></ul>
           <details id="review-details" hidden>
             <summary>Visitas por revisar</summary>
             <ul id="reviews"></ul>
+          </details>
+        </div>
+        <div class="card">
+          <h2 id="journey-day"></h2>
+          <p id="seller" class="sub"></p>
+          <p id="updated" class="sub"></p>
+          <p id="route-summary"></p>
+          <details id="route-details">
+            <summary>Clientes de la ruta</summary>
+            <ul id="clients"></ul>
           </details>
         </div>
       </div>

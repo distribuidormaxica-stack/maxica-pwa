@@ -140,10 +140,11 @@ function notifyDeviceChange() {
 
 function showNotice(message) {
   ui('notice').textContent = message;
-  fallback.hidden = navigator.onLine === false;
+  fallback.hidden = navigator.onLine === false || currentView !== 'live' || Boolean(activePort);
 }
 
 function refreshNotice() {
+  document.body.classList.toggle('rutas-abierta', currentView === 'live' && Boolean(activePort));
   if (storageError) {
     showNotice('El navegador no pudo acceder a la copia de este dispositivo.');
   } else if (vault?.snapshot && navigator.onLine === false) {
@@ -154,8 +155,10 @@ function refreshNotice() {
     showNotice('Jornada guardada · El navegador aún no confirmó que la aplicación pueda abrirse sin señal.');
   } else if (navigator.onLine === false) {
     showNotice('Sin señal.');
+  } else if (currentView === 'live' && activePort) {
+    showNotice('Para preparar la copia, entra en Ruta y pulsa «Preparar jornada sin conexión».');
   } else {
-    showNotice('Prepara tu jornada desde Rutas para consultarla sin señal.');
+    showNotice('');
   }
 }
 
@@ -182,15 +185,17 @@ function setView(view) {
   frame.hidden = view !== 'live';
   ui('saved-button').setAttribute('aria-pressed', String(view === 'saved'));
   ui('live-button').setAttribute('aria-pressed', String(view === 'live'));
+  ui('live-button').textContent = view === 'live' ? 'Rutas' : frameRequested ? 'Volver a Rutas' : 'Abrir Rutas';
   if (view === 'saved') refreshSavedView();
+  refreshNotice();
 }
 
-function showLive(retry = false) {
+function showLive() {
   if (navigator.onLine === false && !frameRequested) {
     setView('saved');
     return;
   }
-  if (!frameRequested || (retry && !activePort && navigator.onLine !== false)) {
+  if (!frameRequested) {
     frameRequested = true;
     frame.src = RUTAS_URL;
   }
@@ -390,7 +395,7 @@ window.addEventListener('message', event => {
 });
 
 let viewChosen = false;
-ui('live-button').addEventListener('click', () => { viewChosen = true; showLive(true); });
+ui('live-button').addEventListener('click', () => { viewChosen = true; showLive(); });
 ui('saved-button').addEventListener('click', () => { viewChosen = true; setView('saved'); });
 window.addEventListener('offline', () => {
   if (!activePort || currentView !== 'live') setView('saved');
